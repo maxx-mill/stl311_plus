@@ -1,0 +1,92 @@
+version: '3.8'
+
+services:
+  # PostgreSQL with PostGIS
+  postgres:
+    image: postgis/postgis:13-3.1
+    container_name: stl311_postgres
+    environment:
+      POSTGRES_DB: stl311_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    networks:
+      - stl311_network
+
+  # GeoServer
+  geoserver:
+    image: kartoza/geoserver:2.22.2
+    container_name: stl311_geoserver
+    environment:
+      GEOSERVER_ADMIN_PASSWORD: geoserver
+      GEOSERVER_ADMIN_USER: admin
+      GEOSERVER_DATA_DIR: /opt/geoserver/data_dir
+      GEOSERVER_FILEBROWSER_HIDEFS: false
+      GEOSERVER_CSRF_WHITELIST: stl311_flask
+      GEOSERVER_CSRF_WHITELIST_COOKIE: stl311_flask
+    ports:
+      - "8080:8080"
+    volumes:
+      - geoserver_data:/opt/geoserver/data_dir
+    depends_on:
+      - postgres
+    networks:
+      - stl311_network
+
+  # Flask Application
+  flask_app:
+    build: .
+    container_name: stl311_flask
+    environment:
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/stl311_db
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=stl311_db
+      - DB_USER=postgres
+      - DB_PASSWORD=password
+      - GEOSERVER_URL=http://geoserver:8080/geoserver
+      - GEOSERVER_USERNAME=admin
+      - GEOSERVER_PASSWORD=geoserver
+      - GEOSERVER_WORKSPACE=stl311
+      - GEOSERVER_NAMESPACE=http://stl311.org
+      - STL311_API_KEY=${STL311_API_KEY}
+      - FLASK_ENV=development
+      - FLASK_DEBUG=True
+      - SECRET_KEY=dev-secret-key-change-in-production
+    ports:
+      - "5000:5000"
+    depends_on:
+      - postgres
+      - geoserver
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - stl311_network
+    restart: unless-stopped
+
+  # Nginx (optional, for production)
+  nginx:
+    image: nginx:alpine
+    container_name: stl311_nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+    depends_on:
+      - flask_app
+    networks:
+      - stl311_network
+    profiles:
+      - production
+
+volumes:
+  postgres_data:
+  geoserver_data:
+
+networks:
+  stl311_network:
+    driver: bridge 

@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Coordinate Test</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.8.0/proj4.js"></script>
+</head>
+<body>
+    <h1>Coordinate Transformation Test</h1>
+    <div id="results"></div>
+    
+    <script>
+        // Test coordinates from our API
+        const testCoords = [
+            [-10042681.04, 4662932.863],
+            [-10053863.715, 4663200.012]
+        ];
+        
+        const results = document.getElementById('results');
+        
+        testCoords.forEach((coord, index) => {
+            try {
+                const [x, y] = coord;
+                console.log(`Test ${index + 1} - EPSG:3857:`, x, y);
+                
+                // Transform from EPSG:3857 to EPSG:4326
+                const transformed = proj4('EPSG:3857', 'EPSG:4326', [x, y]);
+                const [lng, lat] = transformed;
+                
+                console.log(`Test ${index + 1} - EPSG:4326:`, lng, lat);
+                
+                results.innerHTML += `
+                    <p><strong>Test ${index + 1}:</strong></p>
+                    <p>EPSG:3857: [${x}, ${y}]</p>
+                    <p>EPSG:4326: [${lng.toFixed(6)}, ${lat.toFixed(6)}]</p>
+                    <hr>
+                `;
+            } catch (error) {
+                console.error(`Error in test ${index + 1}:`, error);
+                results.innerHTML += `<p style="color: red;">Error in test ${index + 1}: ${error.message}</p>`;
+            }
+        });
+    </script>
+</body>
+</html> 
