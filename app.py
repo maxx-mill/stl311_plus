@@ -52,6 +52,27 @@ api_client = APIClient()
 data_processor = DataProcessor()
 geoserver_client = GeoServerClient()
 
+# Initialize scheduler (optional - can be started via API)
+scheduler = None
+
+def initialize_scheduler():
+    """Initialize the data scheduler."""
+    global scheduler
+    try:
+        from services.scheduler import DataScheduler
+        scheduler = DataScheduler(app)
+        logger.info("Scheduler initialized (not started)")
+        return True
+    except ImportError as e:
+        logger.warning(f"Scheduler not available - schedule library not installed: {e}")
+        return False
+    except Exception as e:
+        logger.error(f"Failed to initialize scheduler: {e}")
+        return False
+
+# Try to initialize scheduler
+initialize_scheduler()
+
 # Initialize database tables
 with app.app_context():
     try:
@@ -64,16 +85,6 @@ with app.app_context():
 def index():
     """Home page with API documentation."""
     return render_template('index.html')
-
-@app.route('/simple')
-def simple_map():
-    """Simple working map for testing."""
-    return render_template('simple_map.html')
-
-@app.route('/test')
-def test():
-    """Simple test page for debugging."""
-    return render_template('test.html')
 
 @app.route('/api/health')
 def health_check():
@@ -306,6 +317,115 @@ def sync_data():
     except Exception as e:
         logger.error(f"Error during data sync: {e}")
         return jsonify({'error': 'Internal server error'}), 500
+
+@app.route('/api/scheduler/start', methods=['POST'])
+def start_scheduler():
+    """Start the automatic daily sync scheduler."""
+    global scheduler
+    try:
+        if not scheduler:
+            if not initialize_scheduler():
+                return jsonify({'error': 'Scheduler not available'}), 500
+        
+        if scheduler.is_running:
+            return jsonify({
+                'message': 'Scheduler is already running',
+                'status': scheduler.get_scheduler_status()
+            })
+        
+        scheduler.start_scheduler()
+        return jsonify({
+            'message': 'Scheduler started successfully',
+            'status': scheduler.get_scheduler_status()
+        })
+        
+    except Exception as e:
+        logger.error(f"Error starting scheduler: {e}")
+        return jsonify({'error': f'Failed to start scheduler: {e}'}), 500
+
+@app.route('/api/scheduler/stop', methods=['POST'])
+def stop_scheduler():
+    """Stop the automatic daily sync scheduler."""
+    global scheduler
+    try:
+        if not scheduler:
+            return jsonify({'message': 'Scheduler not initialized'})
+        
+        if not scheduler.is_running:
+            return jsonify({'message': 'Scheduler is not running'})
+        
+        scheduler.stop_scheduler()
+        return jsonify({'message': 'Scheduler stopped successfully'})
+        
+    except Exception as e:
+        logger.error(f"Error stopping scheduler: {e}")
+        return jsonify({'error': f'Failed to stop scheduler: {e}'}), 500
+
+@app.route('/api/scheduler/status', methods=['GET'])
+def scheduler_status():
+    """Get scheduler status."""
+    global scheduler
+    try:
+        if not scheduler:
+            return jsonify({
+                'initialized': False,
+                'is_running': False,
+                'message': 'Scheduler not initialized'
+            })
+        
+        status = scheduler.get_scheduler_status()
+        status['initialized'] = True
+        return jsonify(status)
+        
+    except Exception as e:
+        logger.error(f"Error getting scheduler status: {e}")
+        return jsonify({'error': f'Failed to get scheduler status: {e}'}), 500
+
+@app.route('/api/sync/yesterday', methods=['POST'])
+def sync_yesterday():
+    """Sync yesterday's data immediately."""
+    global scheduler
+    try:
+        if not scheduler:
+            if not initialize_scheduler():
+                return jsonify({'error': 'Scheduler not available'}), 500
+        
+        result = scheduler.sync_yesterday_now()
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Error syncing yesterday's data: {e}")
+        return jsonify({'error': f'Failed to sync yesterday: {e}'}), 500
+
+@app.route('/api/sync/date-range', methods=['POST'])
+def sync_date_range():
+    """Sync a specific date range."""
+    global scheduler
+    try:
+        if not scheduler:
+            if not initialize_scheduler():
+                return jsonify({'error': 'Scheduler not available'}), 500
+        
+        data = request.get_json()
+        start_date_str = data.get('start_date')
+        end_date_str = data.get('end_date')
+        
+        if not start_date_str or not end_date_str:
+            return jsonify({'error': 'start_date and end_date are required'}), 400
+        
+        try:
+            start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+            end_date = datetime.strptime(end_date_str, '%Y-%m-%d')
+            end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+        except ValueError:
+            return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD'}), 400
+        
+        result = scheduler.sync_date_range(start_date, end_date)
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Error syncing date range: {e}")
+        return jsonify({'error': f'Failed to sync date range: {e}'}), 500
 
 @app.route('/api/geoserver/publish', methods=['POST'])
 def publish_to_geoserver():
